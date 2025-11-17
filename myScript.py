@@ -1,62 +1,58 @@
-import os, json, requests
+import os, json
+from openai import OpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
-BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-MODEL= os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-API_KEY=os.getenv("OPENAI_API_KEY")
-if not API_KEY:
-    raise RuntimeError("OPENAI_API_KEY не задан в окружении")
+print ("Сейчас с Вами общается ИИ - ассистент!")
 
-CHAT_URL=f"{BASE_URL}/chat/completions"
+client = OpenAI()
 
-SYSTEM_PROMPT= (
-    "Ты -дружелюбный репетитор по информатике для школьниковю "
-    "Объясняй просто и коротко. Если вопрос неоднозначен - уточни 1 вещь"
-    "Дай решение/объяснение в 2-4 шагах и итоговый ответ"
-    "Добавляй 1 мини-совет по теме в конце (1 строка)"
-)
+with open("faq.json", "r", encoding="utf-8") as f:
+    FAQ=json.load(f)
 
-def ask_llm(question:str)->str:
-    payload= {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-            ],
-        "temperature":0.2,
-    }
 
-    try:
-        resp=requests.post(
-            CHAT_URL,
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json"
+def ask_llm(user_q:str)->str:
+    faq_text="\n".join([f"Q: {item['q']}\nA: {item['a']}" for item in FAQ])
 
-            },
-            data=json.dumps(payload),
-            timeout=60
+    prompt= f"""
+Ты - AI-консультант банка.
+У тебя есть список FAQ (вопрос-ответ).
+Клиент задает вопрос: "{user_q}"
 
-        )
-        resp.raise_for_status()
-        obj=json.loads(resp.text)
-        return obj["choices"] [0]["message"]["content"].strip()
-    except requests.exceptions.RequestException as e:
-        return f"Ошибка запроса:{e}"
+Задача: 
+1. Найди наиболее похожий вопрос из FAQ.
+2. Если нашел -дай готовый ответ(НЕ придумывай новый).
+3. Если нет ничего похожего - ответь строго: "нет похожего"
+
+FAQ:
+{faq_text}
+"""
     
-def main():
-    print("Бот-репетитор запущен. Спроси что угодно по информатике (или/exit):")
-    while True:
-        try:
-            q=input("\nТы").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nПока!"); break
-        if not q:
-            continue
-        if q.lower() in ("/exit", "exit", "quit"):
-            print("Пока!"); break
-        print (f"Бот: {ask_llm(q)}")
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role":"system", "content":"Ты помощник банка."},
+                  {"role":"user", "content":prompt }],
+        temperature=0
+    )
 
-if __name__ =="__main__":
-    main()
+    return resp.choices[0].message.content.strip()
+
+def get_answer(user_q:str)->str:
+    answer=ask_llm(user_q)
+    if "нет похожего" in answer.lower():
+        phone="9091"
+        return f"Пожалуйста, по этому вопросу свяжитесь с оператором по номеру {phone}"
+    else:
+        return answer
+
+while True:
+    q=input("Клиент: ")
+    if q.lower() in ["exit", "выход"]:
+        break
+    print("AI:", get_answer(q))
+
+
+
+
+
+
